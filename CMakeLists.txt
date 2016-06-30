@@ -1,0 +1,10 @@
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+set(SOURCE
+    ${SOURCE}
+    PARENT_SCOPE
+)
+set(HEADERS
+    ${HEADERS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/serialization++.h
+    PARENT_SCOPE
+)
