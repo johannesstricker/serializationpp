@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <vector>
 
 /** DEPENDENCIES */
 #include "json.hpp"
@@ -11,10 +12,15 @@
 /** DEFINITIONS */
 /** This is the name of the attribute, to hold the properties for serialization. */
 #define PROPERTIES SERIALIZATION_PROPERTIES
+/** Returns true if T has the PROPERTIES attribute. */
+#define IF_SERIALIZABLE(T, RETURN_TYPE) std::enable_if_t<serialization::detail::has_properties<T>::value, RETURN_TYPE>
+#define IF_NOT_SERIALIZABLE(T, RETURN_TYPE) std::enable_if_t<!serialization::detail::has_properties<T>::value, RETURN_TYPE>
 /** Definitions for easier serialization. */
 #define SERIALIZE(...) constexpr static auto PROPERTIES = std::make_tuple(__VA_ARGS__)
 #define STORE(x,y) serialization::detail::makeProperty(x, y)
 
+
+/** http://ideone.com/yd0dhs */
 namespace serialization
 {
     /**
@@ -46,9 +52,29 @@ namespace serialization
          */
         template<typename T, typename = void>
         struct has_properties : std::false_type { };
-
         template<typename T>
         struct has_properties<T, decltype((T::PROPERTIES), void())> : std::true_type { };
+        /**
+         * Used to check if a Type is a std::pair.
+         */
+        template<typename T, typename = void>
+        struct is_pair : std::false_type { };
+        template<typename T>
+        struct is_pair<T, decltype(T::first, T::second, void())> : std::true_type { };
+        /**
+         * Used to check if a type is iterable, eg. has an iterator.
+         */
+        template<typename C>
+        struct is_iterable
+        {
+          typedef long false_type;
+          typedef char true_type;
+
+          template<class T> static false_type check(...);
+          template<class T> static true_type  check(int, typename T::const_iterator = C().end());
+
+          enum { value = sizeof(check<C>(0)) == sizeof(true_type) };
+        };
 
         /**
          * DESERIALIZATION HELPER FUNCTIONS *
@@ -179,50 +205,93 @@ namespace serialization
                 return true;
             }
 
-            template<typename T>
-            void store(const char* name, const T& value);
+
+            // template<typename T>
+            // IS_STL_CONTAINER(T, void) store(const char* name, const T& value);
 
             template<typename T>
-            T retrieve(const char* name) const;
+            IF_SERIALIZABLE(T, void) store(const char* name, const T& value);
+
+            template<typename T>
+            IF_NOT_SERIALIZABLE(T, void) store(const char* name, const T& value);
+
+
+            // template<typename T>
+            // IS_STL_CONTAINER(T, T) retrieve(const char* name) const;
+
+            template<typename T>
+            IF_SERIALIZABLE(T, T) retrieve(const char* name) const;
+
+            template<typename T>
+            IF_NOT_SERIALIZABLE(T, T) retrieve(const char* name) const;
         };
 
-        template<>
-        void JsonArchive::store<int>(const char* name, const int& value)
-        {
-            storage[name] = value;
-        }
+        // template<typename T>
+        // IS_STL_CONTAINER(T, void) JsonArchive::store(const char* name, const T& value)
+        // {
+        //     JsonArchive archive;
+        //     int i = 0;
+        //     for(auto iterator = value.begin(); iterator != value.end(); iterator++)
+        //     {
+        //         archive.store(i++, *iterator);
+        //     }
+        //     storage[name] = archive;
+        // }
 
-        template<>
-        void JsonArchive::store<std::string>(const char* name, const std::string& value)
-        {
-            storage[name] = value;
-        }
-        /**
-         * When no specialization is known, we assume that this is a serializable object and try to
-         * call serialize on it.
-         */
         template<typename T>
-        void JsonArchive::store(const char* name, const T& value)
+        IF_SERIALIZABLE(T, void) JsonArchive::store(const char* name, const T& value)
         {
             storage[name] = serialize<JsonArchive>(value).getStorage();
         }
 
+        template<typename T>
+        IF_NOT_SERIALIZABLE(T, void) JsonArchive::store(const char* name, const T& value)
+        {
+            storage[name] = value;
+        }
+
+
+
+        // template<typename T>
+        // IS_STL_CONTAINER(T, T) retrieve(const char* name) const
+        // {
+        //     T result;
+        //     JsonArchive archive;
+        //     archive.setStorage(storage.at(name));
+        //     deserialize<JsonArchive>(archive, result);
+        //     return result;
+        // }
+
         template<>
-        int JsonArchive::retrieve<int>(const char* name) const
+        IF_NOT_SERIALIZABLE(int, int) JsonArchive::retrieve<int>(const char* name) const
         {
             return storage.at(name).ToInt();
         }
+
         template<>
-        std::string JsonArchive::retrieve<std::string>(const char* name) const
+        IF_NOT_SERIALIZABLE(std::string, std::string) JsonArchive::retrieve<std::string>(const char* name) const
         {
             return storage.at(name).ToString();
         }
-        /**
-         * When no specialization is known, we assume that this is a serializable object and try to
-         * call deserialize on it.
-         */
+
+        // template<typename T>
+        // IF_IS_CONTAINER(T, T) JsonArchive::retrieve(const char* name) const
+        // {
+        //     std::vector<V> result;
+        //     auto jsonValue = storage.at(name);
+        //     for(int i=0; i<jsonValue.length(); i++)
+        //     {
+        //         JsonArchive archive;
+        //         archive.setStorage(jsonValue.at(i));
+        //         V value;
+        //         deserialize<JsonArchive>(archive, value);
+        //         result.push_back(value);
+        //     }
+        //     return result;
+        // }
+
         template<typename T>
-        T JsonArchive::retrieve(const char* name) const
+        IF_SERIALIZABLE(T, T) JsonArchive::retrieve(const char* name) const
         {
             T result;
             JsonArchive archive;
